@@ -119,9 +119,12 @@ mutex is_computing_lock;
 bool is_computing;
 App_Client* app_client_ptr;
 
-
 int64_t total_receive;
 int64_t total_send;
+
+
+int is_waiting_handle_failer_thread;
+mutex is_waiting_handle_failer_thread_lock;
 
 ////
 
@@ -681,6 +684,7 @@ int main(){
     
     total_receive = 0;
     total_send = 0;
+    is_waiting_handle_failer_thread =0;
     
     //
 
