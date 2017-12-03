@@ -97,7 +97,7 @@ void PageRankVertex::compute(vector<double>& msgs){
         *MutableValue() = 0.15 + 0.85*sum;
     }
     
-    if(superstep() <= 10){
+    if(superstep() <= 15){
         int num_out_edges = out_going_edges.size();
         //
         num_send += num_out_edges;

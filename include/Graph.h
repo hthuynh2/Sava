@@ -1193,9 +1193,14 @@ void Graph<VertexType,MessageValue>::add_value_to_incoming_map(int& map_idx, str
     MessageValue temp_val;
     String_to_MessageValue(temp_value_str, temp_val);
     incoming_msg_locks[map_idx][dest_vertex_id_str].lock();
+    int temp = incoming_msg_maps[map_idx][dest_vertex_id_str].size();
     incoming_msg_maps[map_idx][dest_vertex_id_str].push_back(temp_val);
+    int temp1 = incoming_msg_maps[map_idx][dest_vertex_id_str].size();
     num_msg_receive_via_network++;
     incoming_msg_locks[map_idx][dest_vertex_id_str].unlock();
+    if(temp != 1+ temp1){
+        cout << "add_value_to_incoming_map: WRONGGGGG!!!!!\n\n\n\n\n\n\n\n\n\n!!!!WRONGGGGG!!!!!\n\n\n\n\n\n\n\n\n\n";
+    }
 }
 
 
