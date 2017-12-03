@@ -260,6 +260,7 @@ void worker_handler_thread(int socket_fd, Graph_Base* graph_ptr){
 //        return;
     }
     else if(buf[0] == 'W' && buf[1] == 'M'){
+        cout << "worker_handler_thread: Receive WM msg\n";
         graph_ptr->handle_WM_msg(socket_fd);
     }
 //    else if(buf[0] == 'B'){
@@ -269,7 +270,7 @@ void worker_handler_thread(int socket_fd, Graph_Base* graph_ptr){
     else{
         cout << "Inside worker_handler_thread: Receive Undefined msg. Something is WRONG!!!\n";
     }
-    close(socket_fd);
+//    close(socket_fd);
     return;
 }
 
@@ -327,11 +328,17 @@ void handle_master_msg_thread(int socket_fd, Graph_Base* graph_ptr){
     }
     else if(buf[0] == 'M' && buf[1] == 'G'){                //Local vertice num request
         cout << "Inside handle_master_msg_thread: Receive MG\n";
-        string msg = to_string(graph_ptr->get_num_edges_local());
+        graph_ptr->init_test_info();
+
+        string msg = to_string(graph_ptr->get_num_vertices_local());
         tcp_send_string(socket_fd, msg);
+
+        cout << "TOTAL SEND BYTES: " << total_send;
+        cout << "TOTAL RECEIVE BYTES: " << total_receive;
+        total_send= 0;
+        total_receive = 0;
+        graph_ptr->write_graph_to_file();
         
-        cout << "TOTAL SEND: " << total_send;
-        cout << "TOTAL RECEIVE: " << total_receive;
         return;
     }
     else if(buf[0] == 'M' && buf[1] == 'B'){                    //Build request
@@ -351,8 +358,17 @@ void handle_master_msg_thread(int socket_fd, Graph_Base* graph_ptr){
     }
     else if(buf[0] == 'M' && buf[1] == 'O'){                    //Total number of vertices
         cout << "Inside handle_master_msg_thread: Receive MO\n";
-
+        
+        cout << "FINAL TOTAL SEND: " << total_send <<"\n";
+        cout << "FINAL TOTAL RECEIVE: " << total_receive<<"\n";
+        cout << "FINAL: RECV via NET: " << graph_ptr->get_num_msg_receive_via_network() << "\n";
+        cout << "FINAL: SEND via NET: " << graph_ptr->get_num_msg_send_via_network() << "\n";
+        cout << "FINAL: RECV DIRECTLY: " << graph_ptr->get_num_msg_receive_directly() << "\n";
+        cout << "FINAL: SEND DIECTLY " << graph_ptr->get_num_msg_send_directly() << "\n";
+        
         Apply_Output_function();
+
+        
 //        app_ptr->write_to_file();
 //        graph_ptr->write_to_file();
         cout << "Inside handle_master_msg_thread: Handle MO DONE\n";
@@ -366,9 +382,9 @@ void handle_master_msg_thread(int socket_fd, Graph_Base* graph_ptr){
 
 
 void Apply_Output_function(){
-    int64_t total_send = app_ptr->get_graph_ptr()->get_total_send();
-    int64_t total_receive = app_ptr->get_graph_ptr()->get_total_receive();
-    cout << "Apply_Output_function: total_send = " <<total_send << " ||||| total receive = " << total_receive<<"\n";
+    int64_t total_send_msg = app_ptr->get_graph_ptr()->get_total_send();
+    int64_t total_receive_msg = app_ptr->get_graph_ptr()->get_total_receive();
+    cout << "Apply_Output_function: total_send = " <<total_send_msg << " ||||| total receive = " << total_receive_msg<<"\n";
     
     
     map<string,string> vertex_value_map;
@@ -395,7 +411,7 @@ void run_handle_MS_thread_handler_thread(Graph_Base* graph_ptr, string s_msg){
 void start_build_graph_thread(Graph_Base* graph_ptr){
     graph_ptr->build_graph();
 }
-
+void start_Send_all_messages_to(int dest_worker_id, Graph_Base* graph_ptr);
 
 
 

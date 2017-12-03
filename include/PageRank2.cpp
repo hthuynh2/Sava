@@ -1,6 +1,7 @@
 #include "App.h"
 #include "Vertex.h"
 #include "Graph.h"
+#include <stdio.h>
 
 //#define FILE_NAME "PageRankGraph.txt"
 
@@ -19,7 +20,7 @@ public:
     App_PageRank();
     void set_app_info();
     void Output_function(map<string,string>& vertex_value_map);
-
+    void write_to_file(string file_name);
 private:
     string app_name;
 };
@@ -31,7 +32,7 @@ App_PageRank::App_PageRank(){
 
 
 void App_PageRank::set_app_info(){
-    auto ptr = new Graph<PageRankVertex, double> (false, true); //unweighted,is_directed
+    auto ptr = new Graph<PageRankVertex, double> (false, false); //unweighted,is_directed
     set_graph_ptr(ptr);
     set_file_name("PageRankGraph.txt");
 }
@@ -60,36 +61,83 @@ void App_PageRank::Output_function(map<string,string>& vertex_value_map){
     }
 }
 
+void App_PageRank::write_to_file(string file_name){
+    FILE* fp = fopen(file_name.c_str(), "w");
+
+    map<string, string> local_container = get_output_container();
+    map<double, vector<string> > val_vid_map;
+    
+    
+    for(auto it = local_container.begin(); it != local_container.end(); it++){
+        val_vid_map[atof(it->second.c_str())].push_back(it->first);
+    }
+    
+    for(auto it = val_vid_map.rbegin(); it != val_vid_map.rend() ;it++){
+        for(auto it1 = it->second.begin(); it1 != it->second.end(); it1++){
+            string temp(*it1);
+            temp += " " + to_string(it->first) + "\n";
+            fwrite(temp.c_str(), sizeof(char), temp.size() , fp);
+        }
+    }
+    
+    fclose(fp);
+    return;
+}
+
+
 void PageRankVertex::compute(vector<double>& msgs){
     Reactivate();
     if(superstep() >= 1){
         double sum = 0;
         for(auto it = msgs.begin(); it != msgs.end(); it++){
             sum += *it;
-            //
             num_receive ++;
-            //
         }
-        *MutableValue() += sum;
+        //        *MutableValue() += sum;
         *MutableValue() = 0.15 + 0.85*sum;
-        
-        //        *MutableValue() = (double)(0.15/(double)(graph_ptr->get_total_num_vertices()))  + 0.85*sum;
     }
     
-    if(superstep() <= 20){
+    if(superstep() <= 10){
         int num_out_edges = out_going_edges.size();
         //
         num_send += num_out_edges;
         
         //
         double send_value = GetValue()/(double)num_out_edges;
-//        double send_value = stoi(vertex_id);
+        //        double send_value = stoi(vertex_id);
         send_to_all_neighbors(send_value);
     }
     else{
         VoteToHalt();
     }
     return;
+    
+//    Reactivate();
+//    if(superstep() == 1){
+//        *MutableValue() = (double)(1/(double)(graph_ptr->get_total_num_vertices())) ;
+//    }
+//
+//    if(superstep() >= 1){
+//        double sum = 0;
+//        for(auto it = msgs.begin(); it != msgs.end(); it++){
+//            sum += *it;
+//            num_receive ++;
+//        }
+//        *MutableValue() = (double)(0.15/(double)(graph_ptr->get_total_num_vertices())) + 0.85*sum;
+//    }
+//
+//    if(superstep() <= 20){
+//        int num_out_edges = out_going_edges.size();
+//        num_send += num_out_edges;
+//
+//        double send_value = GetValue()/(double)num_out_edges;
+////        double send_value = stoi(vertex_id);
+//        send_to_all_neighbors(send_value);
+//    }
+//    else{
+//        VoteToHalt();
+//    }
+//    return;
 }
 
 extern "C" void* create_v_t() {

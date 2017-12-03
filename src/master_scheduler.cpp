@@ -319,7 +319,16 @@ bool Master_Scheduler::send_stop_msg_to_all(int fail_worker_id){
         else{
             //Send msg to itself
             count++;
-            app_ptr->get_graph_ptr()->handle_MS_msg(-1, ms_msg);
+            //NEED TO DO: NEED to check if it is currentl a worker. IF not, this cause pagefault!
+            if(app_ptr != NULL){
+                app_ptr->get_graph_ptr()->handle_MS_msg(-1, ms_msg);
+            }
+//            else{
+//                //NEED TO IMPLEMENT
+//                thread new_thread(handle_MI_msg, ci_msg);
+//                new_thread.detach();
+//
+//            }
         }
     }
 
@@ -540,11 +549,7 @@ void Master_Scheduler::handle_CB_msg(int socket_fd, string str){
         cout << "handle_CB_msg: send_Build_msg_to_all failed\n";
         return;
     }
-    
-    while(1){
-        
-    }
-    
+
     is_scheduler_runing_lock.lock();
     if(is_scheduler_runing == true){
         cout << "handle_CB_msg: Some scheduler is running. Something is WRONG\n";
@@ -722,8 +727,11 @@ void Master_Scheduler::set_num_vertices(){
         else{
             //Send msg to itself
             int temp = app_ptr->get_graph_ptr()->get_num_edges_local();
-            cout << "TOTAL SEND: " << total_send;
-            cout << "TOTAL RECEIVE: " << total_receive;
+            app_ptr->get_graph_ptr()->write_graph_to_file();
+            cout << "TOTAL SEND BYTES: " << total_send;
+            cout << "TOTAL RECEIVE BYTES: " << total_receive;
+            total_send= 0;
+            total_receive = 0;
             cout << "set_num_vertices: Get " <<temp << " vertices from local graph\n";
             total +=temp;
         }
@@ -1077,6 +1085,12 @@ bool Master_Scheduler::send_MO_msg_to_all(){
         else{
             //Send msg to itself
             cout << "send_MO_msg_to_all: Send msg to itself\n";
+            cout << "FINAL TOTAL SEND: " << total_send <<"\n";
+            cout << "FINAL TOTAL RECEIVE: " << total_receive<<"\n";
+            cout << "FINAL: RECV via NET: " << app_ptr->get_graph_ptr()->get_num_msg_receive_via_network() << "\n";
+            cout << "FINAL: SEND via NET: " << app_ptr->get_graph_ptr()->get_num_msg_send_via_network() << "\n";
+            cout << "FINAL: RECV DIRECTLY: " << app_ptr->get_graph_ptr()->get_num_msg_receive_directly() << "\n";
+            cout << "FINAL: SEND DIECTLY " << app_ptr->get_graph_ptr()->get_num_msg_send_directly() << "\n";
             Apply_Output_function();
 //            if(app_ptr->get_graph_ptr()){
 //                app_ptr->get_graph_ptr()->write_to_file();

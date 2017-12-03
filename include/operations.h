@@ -102,3 +102,4 @@ void start_build_graph_thread(Graph_Base* graph_ptr);
 void handle_MI_msg(string str);
 void handle_MS_msg(string str);
 void Apply_Output_function();
+void start_Send_all_messages_to(int dest_worker_id, Graph_Base* graph_ptr);

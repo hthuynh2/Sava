@@ -24,9 +24,12 @@ public:
 //    void set_num_superstep(int num_);
     Graph_Base* get_graph_ptr();
     void Add_to_Output_Container(string vertex_id_str, string val);
-    void write_to_file(string file_name);
+    virtual void write_to_file(string file_name);
     void set_graph_ptr(Graph_Base* graph_ptr_);
     int get_my_worker_id();
+    map<string,string> get_output_container(){
+        return output_container;
+    }
 
 protected:
     Graph_Base* graph_ptr;

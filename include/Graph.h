@@ -60,10 +60,35 @@ public:
     void add_all_vertex_to_set(set<string>& output_container);
     void get_all_vertex_value(map<string,string>& vertex_value_map);
     int get_my_worker_id();
+    void write_graph_to_file();
     
+    void init_test_info(){
+         num_msg_receive_via_network = 0;
+         num_msg_send_via_network = 0;
+         num_msg_receive_directly = 0;
+         num_msg_send_directly = 0;
+    }
+    
+    int64_t get_num_msg_receive_via_network(){
+        return num_msg_receive_via_network;
+    }
+    int64_t get_num_msg_send_via_network(){
+        return num_msg_send_via_network;
+    }
+    int64_t get_num_msg_receive_directly(){
+        return num_msg_receive_directly;
+    }
+    int64_t get_num_msg_send_directly(){
+        return num_msg_send_directly;
+    }
+
+    
+    void Send_all_messages_to(int dest_worker_id);
+    void add_value_to_incoming_map(int& map_idx, string& dest_vertex_id_str, string& temp_val);
+    
+
 //    typename map<string, EdgeValue>::iterator GetOutEdgeIterator_Start();
 //    typename map<string, EdgeValue>::iterator GetOutEdgeIterator_End();
-    
     
     ////
     //
@@ -78,7 +103,7 @@ public:
     map<int,string> worker_ip_map;          //<worker_id, worker ip>
     map<string,VertexType> vertex_map;         //<vertex_id, vertex>    //Might need lock while building graph
     map<int , map<string, vector<MessageValue> > > outgoing_msg_map   ;     // <dest_worker_id, <dest_vertex_id, out-msg-buffer> >
-    map<int , int> outgoing_msg_count_map;      //<dest_worker_id, number of msg waiting>
+//    map<int , int> outgoing_msg_count_map;      //<dest_worker_id, number of msg waiting>
     map<string, vector<MessageValue> > incoming_msg_maps[2];        //<vertex, vector<value> >
     map<string, mutex> incoming_msg_locks[2];
 
@@ -98,6 +123,17 @@ public:
     
     int total_num_vertices;
     map<int,int> current_iteration_fd_map;
+    
+    
+    int64_t num_msg_receive_via_network;
+    int64_t num_msg_send_via_network;
+    int64_t num_msg_receive_directly;
+    int64_t num_msg_send_directly;
+    
+
+
+    
+//    mutex vertex_map_lock;
 
 //    typename map<string, VertexType>::iterator GetVertexMapIterator_Start();
 //    typename map<string, VertexType>::iterator GetVertexMapIterator_End();
@@ -179,6 +215,26 @@ public:
 //typename map<string, VertexType>::iterator Graph<VertexType,MessageValue>::GetVertexMapIterator_End(){
 //    return vertex_map.end();
 //}
+
+template <typename VertexType, typename MessageValue>
+void Graph<VertexType,MessageValue>::write_graph_to_file(){
+    FILE* fp = fopen("graph_edges", "w");
+    for(auto it = vertex_map.begin(); it != vertex_map.end(); it++){
+        if(it->second.out_going_edges.size() == 0){
+            string temp(it->first);
+            temp += "\n";
+            fwrite(temp.c_str(), sizeof(char), temp.size() , fp);
+            continue;
+        }
+        for(auto it1 = it->second.out_going_edges.begin(); it1 != it->second.out_going_edges.end(); it1++){
+            string temp(it->first);
+            temp += " "+ it1->first + "\n";
+            fwrite(temp.c_str(), sizeof(char), temp.size() , fp);
+        }
+    }
+    fclose(fp);
+}
+
 
 template <typename VertexType, typename MessageValue>
 int64_t Graph<VertexType,MessageValue>::get_total_send(){
@@ -390,11 +446,12 @@ void Graph<VertexType,MessageValue>::build_graph(){
                 }
                 else{
                     //                cout << "Graph->buildgraph: Add dest vertex to local graph: vertex id =  " << *it <<" \n";
+                    
+//                    vertex_map_lock.lock();
                     vertex_map[*it].set_vertex_id(*it);
                     vertex_map[*it].init_vertex_val();
                     vertex_map[*it].setGraphPtr((Graph_Base*) this);
-                    vertex_map[*it].init_vertex_val();
-
+//                    vertex_map_lock.unlock();
                 }
             }
         }
@@ -456,16 +513,22 @@ bool Graph<VertexType,MessageValue>::handle_input_line_undirected(set<string>& d
         int dest_worker_id = str_hash(source) % num_worker;
         
         if(worker_ip_map[dest_worker_id] == my_vm_info.ip_addr_str){
+//            vertex_map_lock.lock();
             if(vertex_map.find(source) == vertex_map.end() ){
                 vertex_map[source].set_vertex_id(source);
                 vertex_map[source].init_vertex_val();
                 vertex_map[source].add_edge(end, stoi(weight));
                 vertex_map[source].setGraphPtr((Graph_Base*) this);
+//                vertex_map_lock.unlock();
+                
                 incoming_msg_locks[0][source].lock();
                 incoming_msg_locks[0][source].unlock();
                 
                 incoming_msg_locks[1][source].lock();
                 incoming_msg_locks[1][source].unlock();
+            }
+            else{
+                vertex_map[source].add_edge(end, stoi(weight));
             }
         }
         else{
@@ -502,6 +565,9 @@ bool Graph<VertexType,MessageValue>::handle_input_line_undirected(set<string>& d
                 incoming_msg_locks[1][source].lock();
                 incoming_msg_locks[1][source].unlock();
             }
+            else{
+                vertex_map[source].add_edge(end, stoi(weight));
+            }
         }
         else{
             string msg("");
@@ -536,6 +602,9 @@ bool Graph<VertexType,MessageValue>::handle_input_line_undirected(set<string>& d
                 
                 incoming_msg_locks[1][source].lock();
                 incoming_msg_locks[1][source].unlock();
+            }
+            else{
+                vertex_map[source].add_edge(end);    //Might be wrong!!!
             }
         }
         else{
@@ -575,6 +644,9 @@ bool Graph<VertexType,MessageValue>::handle_input_line_undirected(set<string>& d
                 
                 incoming_msg_locks[1][source].lock();
                 incoming_msg_locks[1][source].unlock();
+            }
+            else{
+                vertex_map[source].add_edge(end);    //Might be wrong!!!
             }
         }
         else{
@@ -639,6 +711,9 @@ bool Graph<VertexType,MessageValue>::handle_input_line(set<string>& dest_vertex_
                 incoming_msg_locks[1][source].lock();
                 incoming_msg_locks[1][source].unlock();
             }
+            else{
+                vertex_map[source].add_edge(end, stoi(weight));
+            }
         }
         else{
             string msg("");
@@ -676,6 +751,9 @@ bool Graph<VertexType,MessageValue>::handle_input_line(set<string>& dest_vertex_
                 
                 incoming_msg_locks[1][source].lock();
                 incoming_msg_locks[1][source].unlock();
+            }
+            else{
+                vertex_map[source].add_edge(end);    //Might be wrong!!!
             }
         }
         else{
@@ -742,51 +820,6 @@ void Graph<VertexType,MessageValue>::run_iteration(){
     cout << "Inside run_iteration\n";
     send_any_msg = false;
     
-    for(auto it = current_iteration_fd_map.begin(); it != current_iteration_fd_map.end(); it++){
-        if(it->second > 0)
-            close(it->second);
-    }
-    
-    //Make connection to all VM.
-    current_iteration_fd_map.erase(current_iteration_fd_map.begin(), current_iteration_fd_map.end());
-    
-    string temp_wm_str("WM");
-    set<int> open_connection_set;
-    
-    for(auto it =  worker_ip_map.begin(); it != worker_ip_map.end(); it++){
-        if(it->first == my_worker_id){
-            current_iteration_fd_map[it->first] = -1;
-            continue;
-        }
-        int temp_fd = tcp_open_connection(it->second, WORKER_PORT);
-        if(temp_fd == -1){
-            cout << "build_graph: Cannot make connection\n";
-            //Close all  connection
-            for(auto it1 = open_connection_set.begin(); it1 != open_connection_set.end(); it1++){
-                close(current_iteration_fd_map[*it1]);
-            }
-            is_running_iteration_lock.lock();
-            is_running_iteration = false;
-            is_running_iteration_lock.unlock();
-            return;
-        }
-        current_iteration_fd_map[it->first] = temp_fd;
-        open_connection_set.insert(it->first);
-        
-        if(tcp_send_string(temp_fd, temp_wm_str) == -1){
-            //Close all  connection
-            for(auto it1 = open_connection_set.begin(); it1 != open_connection_set.end(); it1++){
-                if(*it1 > 0)
-                    close(current_iteration_fd_map[*it1]);
-            }
-            is_running_iteration_lock.lock();
-            is_running_iteration = false;
-            is_running_iteration_lock.unlock();
-            return;
-        }
-    }
-    
-    
     
     ////
     if(super_step== 1){
@@ -801,41 +834,76 @@ void Graph<VertexType,MessageValue>::run_iteration(){
     int map_idx = super_step%2;
     cout << "run_iteration: incoming buffer idx = " << map_idx<<"\n";
     
+    int temp_count = 0;
     for(auto it = vertex_map.begin(); it != vertex_map.end(); it++){
-        if(incoming_msg_maps[map_idx].find(it->first) != incoming_msg_maps[map_idx].end()
-           || active_vertices.find(it->first) != active_vertices.end() ){
+        if((incoming_msg_maps[map_idx].find(it->first) != incoming_msg_maps[map_idx].end()
+            && incoming_msg_maps[map_idx][it->first].size() != 0)
+           || active_vertices.find(it->first) != active_vertices.end() || inactive_vertices.find(it->first) ==active_vertices.end()){
 //            cout << "run_iteration: Start computing vertex id = " << it->first<<"\n";
+//            incoming_msg_locks[map_idx][it->first].lock();        //MIGHT NEED THIS
+            temp_count+=incoming_msg_maps[map_idx][it->first].size();
             it->second.compute(incoming_msg_maps[map_idx][it->first]);
+            
+//            incoming_msg_locks[map_idx][it->first].unlock();
 //            cout << "run_iteration: Finish computing vertex id = " << it->first<<"\n";
         }
         else{
             cout << "run_iteration: Vertex with if = " << it->first<<" is inactive and not have any msg\n";
         }
     }
-    cout << "run_iteration: Start erase all used msg\n";
-    if(incoming_msg_maps[map_idx].size() == 0){
-        cout << "run_iteration: incoming_msg_maps " << map_idx << " has size 0\n";
-    }
-    incoming_msg_maps[map_idx].erase(incoming_msg_maps[map_idx].begin(), incoming_msg_maps[map_idx].end());
-    cout << "run_iteration: Erase all used msg\n";
     
     
-    //NEED TO DO: Send all remain msg in the outgoing buffer
     
-    Send_all_remain_msg();
-    cout << "run_iteration: Send_all_remain_msg Done\n";
+   
+    std::vector<std::thread> threads;
 
+    for(auto it = outgoing_msg_map.begin(); it != outgoing_msg_map.end(); it ++){
+        threads.push_back(thread(start_Send_all_messages_to, it->first, (Graph_Base*) this));
+    }
+    
+    for (auto& th : threads) th.join();
+
+    
+    
+    ////TESTING
+    int temp_count1 = 0;
+    
+    for(auto it = vertex_map.begin(); it != vertex_map.end(); it++){
+        if(incoming_msg_maps[map_idx].find(it->first) != incoming_msg_maps[map_idx].end() ){
+            temp_count1+=incoming_msg_maps[map_idx][it->first].size();
+        }
+    }
+    
+    if(temp_count1 != temp_count){
+        cout << "run_iteration: WRONGGGGGGGGG\n\n\n\n\\n\n\n\n\n\n\n\nWRONGGGGGGGGG\n\n\n\n\n\n";
+    }
+    
+    ////TESTING
+    
+    
+    //Erase all used msg
+    incoming_msg_maps[map_idx].erase(incoming_msg_maps[map_idx].begin(), incoming_msg_maps[map_idx].end());
+    
     if(send_any_msg == false && active_vertices.empty()){
         send_end_iteration_msg_to_master(true);
     }
     else{
-        //        cout << ""
         send_end_iteration_msg_to_master(false);
     }
     is_running_iteration_lock.lock();
     is_running_iteration = false;
     is_running_iteration_lock.unlock();
+    
+ 
 }
+
+void start_Send_all_messages_to(int dest_worker_id, Graph_Base* graph_ptr){
+    graph_ptr->Send_all_messages_to(dest_worker_id);
+    return;
+}
+
+      
+           
 template <typename VertexType, typename MessageValue>
 void Graph<VertexType,MessageValue>::send_end_iteration_msg_to_master(bool isDone){
     string msg("WR");
@@ -901,6 +969,237 @@ void Graph<VertexType,MessageValue>::set_super_step(int super_step_){
 
 
 template <typename VertexType, typename MessageValue>
+void Graph<VertexType,MessageValue>::Send_all_messages_to(int dest_worker_id){
+    int num_dest_vertex = outgoing_msg_map[dest_worker_id].size();
+    
+    
+    if(num_dest_vertex == 0){
+        return ;
+    }
+
+    int fd = tcp_open_connection(worker_ip_map[dest_worker_id], WORKER_PORT);
+    if(fd == -1){
+        close(fd);
+        return ;
+    }
+    
+    string wm_msg("WM");
+    if((super_step+1)%2 == 1){
+        wm_msg += "1";
+    }
+    else{
+        wm_msg += "0";
+    }
+    
+    string num_dest_vertex_str = to_string(num_dest_vertex);
+    if(num_dest_vertex_str.size() < 8){
+        int temp_remain = 8 - num_dest_vertex_str.size();
+        string new_string("");
+        for(int i = 0 ; i < temp_remain; i++){
+            new_string += "0";
+        }
+        new_string += num_dest_vertex_str;
+        num_dest_vertex_str = new_string;
+    }
+    else{
+        cout << "OVERFLOW!!!\n";
+    }
+
+    
+    wm_msg += num_dest_vertex_str;
+    if(tcp_send_string(fd, wm_msg) == -1){
+        close(fd);
+        return ;
+    }
+    total_send += 8 + 1;
+
+    
+    for(auto it = outgoing_msg_map[dest_worker_id].begin(); it != outgoing_msg_map[dest_worker_id].end(); it++){
+        string dest_vertex_id = it->first;
+        string num_values = to_string(it->second.size()*sizeof(MessageValue));
+        string msg("");
+        msg += dest_vertex_id + " " + num_values + " ";
+        for(int i = 0 ; i < (int)it->second.size() ; i++){
+            msg += MessageValue_to_String(it->second[i]);
+            if(msg.size() >= 1000){
+                if(tcp_send_string(fd, msg) == -1){
+                    close(fd);
+                    outgoing_msg_map[dest_worker_id].erase(outgoing_msg_map[dest_worker_id].begin(), outgoing_msg_map[dest_worker_id].end());
+                    return ;
+                }
+                msg = "";
+                total_send+=msg.size();
+            }
+        }
+        if(msg.size() > 0){
+            if(tcp_send_string(fd,msg) == -1){
+                close(fd);
+                outgoing_msg_map[dest_worker_id].erase(outgoing_msg_map[dest_worker_id].begin(), outgoing_msg_map[dest_worker_id].end()) ;
+                return ;
+            }
+            total_send+=msg.size();
+        }
+    }
+    
+    
+    int numbytes;
+    char buf[1];
+    //NEED TO DO: Might need to setsockopt!!!
+    if((numbytes = recv(fd, buf, 1, 0)) <= 0 ){
+        close(fd);
+        outgoing_msg_map[dest_worker_id].erase(outgoing_msg_map[dest_worker_id].begin(), outgoing_msg_map[dest_worker_id].end()) ;
+        return ;
+    }
+    else{
+        close(fd);
+        outgoing_msg_map[dest_worker_id].erase(outgoing_msg_map[dest_worker_id].begin(), outgoing_msg_map[dest_worker_id].end()) ;
+        return ;
+    }
+}
+
+
+void handle_value_msg(int map_idx, int dest_vertex_id, string str, Graph_Base* graph_ptr, int size_Msg_val){
+    if(str.size() % size_Msg_val != 0 ){
+        cout << "handle_value_msg: Somethign is WRONG\n";
+    }
+    int num_values = str.size() / size_Msg_val;
+    int offset = 0;
+    
+    string dest_vertex_id_str = to_string(dest_vertex_id);
+    
+    while(num_values > 0){
+        string temp_value_str = str.substr(offset, size_Msg_val);
+        offset += size_Msg_val;
+        graph_ptr->add_value_to_incoming_map(map_idx, dest_vertex_id_str, temp_value_str);
+        num_values--;
+    }
+    return;
+}
+
+
+template <typename VertexType, typename MessageValue>
+void Graph<VertexType,MessageValue>::handle_WM_msg(int socket_fd){
+    //NEED TO DO: MIGHT NEED TO SETSOCKOPT
+    cout <<"Inside handle_WM_msg\n";
+    int map_idx;
+    int num_dest_vertex;
+    int numbytes;
+    char buf[MAX_BUF_LEN];
+    
+    
+    total_receive += 2;
+    if((numbytes = recv(socket_fd, buf, 1, 0) ) <= 0 ){
+        cout << "handle_WM_msg: ERROR: Cannot receive 0a\n";
+        close(socket_fd);
+        return ;
+    }
+    else{
+        map_idx = buf[0] - '0';
+        total_receive++;
+    }
+    cout << "handle_WM_msg: map_idx = "<<map_idx<<"\n";
+    if((numbytes = recv(socket_fd, buf, 8, 0) ) < 8 ){
+        cout << "handle_WM_msg: ERROR:Cannot receive 0\n";
+        close(socket_fd);
+        return ;
+    }
+    else{
+        string temp(buf, numbytes);
+        num_dest_vertex = stoi(temp);
+        total_receive+=8;
+    }
+    cout << "handle_WM_msg: num_dest_vertex = "<<num_dest_vertex<<"\n";
+
+//    std::vector<std::thread> threads;
+    while(num_dest_vertex > 0){
+        int dest_vertex_id = 0;
+        while(1){
+            char c;
+            if((recv(socket_fd, &c, 1, 0)) <= 0){
+                cout << "handle_WM_msg:ERROR: Cannot receive 1\n";
+                close(socket_fd);
+
+                return ;
+            }
+            total_receive++;
+            if(c == ' ')
+                break;
+            dest_vertex_id = dest_vertex_id*10 + (c - '0');
+        }
+        
+        int need_to_read_bytes = 0;
+        while(1){
+            char c;
+            if((recv(socket_fd, &c, 1, 0)) <= 0){
+                cout << "handle_WM_msg:ERROR: Cannot receive 2\n";
+                close(socket_fd);
+                return ;
+            }
+            total_receive++;
+            if(c == ' ')
+                break;
+            need_to_read_bytes = need_to_read_bytes*10 + (c - '0');
+        }
+        
+        
+        //Get msg
+        char* buf1 = (char*) malloc(need_to_read_bytes);
+        int numbyte;
+        int offset = 0;
+        int msg_len = need_to_read_bytes;
+        while(msg_len > 0){
+            int numbyte = recv(socket_fd,(void*) (buf1 + offset), msg_len, 0);
+            if(numbyte == -1){
+                cout << "handle_WM_msg:ERROR: Cannot receive 3\n";
+                close(socket_fd);
+                return;
+            }
+            total_receive += numbyte;
+            msg_len -= numbyte;
+            offset += numbyte;
+        }
+        string str(buf1, need_to_read_bytes);
+//        cout << "handle_WM_msg: Start creating thread for dest_id = " << dest_vertex_id << "\n";
+        
+        
+        if(str.size() % sizeof(MessageValue) != 0 ){
+            cout << "handle_value_msg: ERROR: Somethign is WRONG\n";
+        }
+        int num_values = str.size() / sizeof(MessageValue);
+        int offset1 = 0;
+        
+        string dest_vertex_id_str = to_string(dest_vertex_id);
+        while(num_values > 0){
+            string temp_value_str = str.substr(offset1, sizeof(MessageValue));
+            offset1 += sizeof(MessageValue);
+            add_value_to_incoming_map(map_idx, dest_vertex_id_str, temp_value_str);
+            num_values--;
+        }
+
+        free(buf1);
+        num_dest_vertex--;
+    }
+    cout << "handle_WM_msg: DONE WITH num_dest_vertex = "<<num_dest_vertex<<"\n";
+
+    string reply("A");
+    tcp_send_string(socket_fd, reply);
+    close(socket_fd);
+    return ;
+}
+
+
+template <typename VertexType, typename MessageValue>
+void Graph<VertexType,MessageValue>::add_value_to_incoming_map(int& map_idx, string& dest_vertex_id_str, string& temp_value_str){
+    MessageValue temp_val;
+    String_to_MessageValue(temp_value_str, temp_val);
+    incoming_msg_locks[map_idx][dest_vertex_id_str].lock();
+    incoming_msg_maps[map_idx][dest_vertex_id_str].push_back(temp_val);
+    num_msg_receive_via_network++;
+    incoming_msg_locks[map_idx][dest_vertex_id_str].unlock();
+}
+
+
+template <typename VertexType, typename MessageValue>
 void Graph<VertexType,MessageValue>::Send_all_remain_msg(){
     cout << "Send_all_remain_msg: Start \n";
     for(auto it = outgoing_msg_map.begin(); it != outgoing_msg_map.end() ;it++){
@@ -956,7 +1255,7 @@ void Graph<VertexType,MessageValue>::Send_all_remain_msg(){
             outgoing_msg_map[it->first].erase(outgoing_msg_map[it->first].begin(), outgoing_msg_map[it->first].end());
 //            cout << "Send_all_remain_msg: Here8 \n";
 
-            outgoing_msg_count_map[dest_worker_id] = 0;
+//            outgoing_msg_count_map[dest_worker_id] = 0;
 //            cout << "Send_all_remain_msg: Here9 \n";
         }
 //        cout << "Send_all_remain_msg: Here10 \n";
@@ -986,43 +1285,47 @@ void Graph<VertexType,MessageValue>::SendMessageTo(const string& dest_vertex, vo
         int map_idx = (super_step + 1) %2;
         incoming_msg_locks[map_idx][dest_vertex].lock();
         incoming_msg_maps[map_idx][dest_vertex].push_back(msg);
+        num_msg_send_directly ++;
+        num_msg_receive_directly ++;
         incoming_msg_locks[map_idx][dest_vertex].unlock();
         return;
     }
  
     //    map<string, vector<MessageValue> > outgoing_msg_map   ;     //<dest_vertex_id, out-msg-buffer>
+    
+    num_msg_send_via_network++;
     outgoing_msg_map[dest_worker_id][dest_vertex].push_back(msg);
-    outgoing_msg_count_map[dest_worker_id]++;
-    if(outgoing_msg_count_map[dest_worker_id] == OUT_GOING_MSG_BUF_SIZE){
-        vector<string> vertex_v;
-        vector<MessageValue> msg_value_v;
-        for(auto it = outgoing_msg_map[dest_worker_id].begin(); it != outgoing_msg_map[dest_worker_id].end(); it++){
-            for(auto it1 = it->second.begin(); it1 != it->second.end(); it1++){
-                vertex_v.push_back(it->first);
-                msg_value_v.push_back(*it1);
-            }
-        }
-        string msg_m = create_WM_msg(vertex_v, msg_value_v);
-        ////
-        while(tcp_send_string_with_size(current_iteration_fd_map[dest_worker_id], msg_m) == -1){    //MIGHT BE WRONG!!
-            int temp_fd = tcp_open_connection(worker_ip_map[dest_worker_id], WORKER_PORT);
-            if(temp_fd == -1){
-                cout << "SendMessageTo: Cannot make connection\n";
-                return ;
-            }
-            current_iteration_fd_map[dest_worker_id] = temp_fd;
-            string temp_wm_str("WM");
-            if(tcp_send_string(temp_fd, temp_wm_str) == -1){
-                close(temp_fd);
-                current_iteration_fd_map[dest_worker_id] = -1;
-                return ;
-            }
-            cout << "SendMessageTo: " << "made new connection\n";
-        }
-        
-        outgoing_msg_map[dest_worker_id].erase(outgoing_msg_map[dest_worker_id].begin(), outgoing_msg_map[dest_worker_id].end());
-        outgoing_msg_count_map[dest_worker_id] = 0;
-    }
+//    outgoing_msg_count_map[dest_worker_id]++;
+//    if(outgoing_msg_count_map[dest_worker_id] == OUT_GOING_MSG_BUF_SIZE){
+//        vector<string> vertex_v;
+//        vector<MessageValue> msg_value_v;
+//        for(auto it = outgoing_msg_map[dest_worker_id].begin(); it != outgoing_msg_map[dest_worker_id].end(); it++){
+//            for(auto it1 = it->second.begin(); it1 != it->second.end(); it1++){
+//                vertex_v.push_back(it->first);
+//                msg_value_v.push_back(*it1);
+//            }
+//        }
+//        string msg_m = create_WM_msg(vertex_v, msg_value_v);
+//        ////
+//        while(tcp_send_string_with_size(current_iteration_fd_map[dest_worker_id], msg_m) == -1){    //MIGHT BE WRONG!!
+//            int temp_fd = tcp_open_connection(worker_ip_map[dest_worker_id], WORKER_PORT);
+//            if(temp_fd == -1){
+//                cout << "SendMessageTo: Cannot make connection\n";
+//                return ;
+//            }
+//            current_iteration_fd_map[dest_worker_id] = temp_fd;
+//            string temp_wm_str("WM");
+//            if(tcp_send_string(temp_fd, temp_wm_str) == -1){
+//                close(temp_fd);
+//                current_iteration_fd_map[dest_worker_id] = -1;
+//                return ;
+//            }
+//            cout << "SendMessageTo: " << "made new connection\n";
+//        }
+//
+//        outgoing_msg_map[dest_worker_id].erase(outgoing_msg_map[dest_worker_id].begin(), outgoing_msg_map[dest_worker_id].end());
+//        outgoing_msg_count_map[dest_worker_id] = 0;
+//    }
 }
 
 template <typename VertexType, typename MessageValue>
@@ -1166,123 +1469,6 @@ void Graph<VertexType,MessageValue>::handle_WB_msg_from_worker(int socket_fd){
 //        cout << "Inside handle_WB_msg_from_worker:DONE!!!\n";
     }
 }
-
-template <typename VertexType, typename MessageValue>
-void Graph<VertexType,MessageValue>::handle_WM_msg(int socket_fd){
-    cout << "Inside handle_WM_msg\n";
-    
-    struct timeval timeout_tv;
-    timeout_tv.tv_sec = 30;      //in sec
-    timeout_tv.tv_usec = 0;
-    setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO,(struct timeval *)&timeout_tv,sizeof(struct timeval));
-    int map_idx = -1;
-
-    while(1){
-        string msg = tcp_receive_str(socket_fd);
-        
-        if(msg.size() < 3){
-            close(socket_fd);
-            cout << "handle_WM_msg: Cannot receive. Return. Last map_idx = "<< map_idx <<"\n";
-            return;
-        }
-        
-        if((msg[0] != '0' && msg[0] != '1') || msg[1] > '9' || msg[1] < '0' ||msg[2] > '9' || msg[2] < '0' ){
-            cout << "Inside handle_WM_msg: Error with number vertices\n";
-            close(socket_fd);
-            return;
-        }
-        map_idx = msg[0] - '0';
-        if(map_idx != -1){
-//            cout << "handle_WM_msg: Last map_idx = "<< map_idx <<"\n";
-        }
-        else if(map_idx != 0 && map_idx != 1){
-            cout << "handle_WM_msg: Last map_idx is not 0 or 1 = "<< map_idx <<"\n";
-        }
-        if(map_idx == super_step%2){
-            cout << "handle_WM_msg: Writing to current buffer of superstep: superstep = " << super_step << " map_idx = "<<map_idx<<"alskdjaslkdjaslkdjaslkdjalskjdaslkdjaslkdjaslkjdaslkdjaslkdjaslkjdaslkjdaslkjdaslkjdaslkjda\n";
-        }
-
-        int num_vertices = 0;
-        num_vertices = (msg[1] - '0')*10 + (msg[2] - '0');
-        if(num_vertices <= 0){
-            cout << "handle_WM_msg: Number of vertices = 0. Something is wrong" <<"\n";
-            close(socket_fd);
-            continue;
-        }
-        else{
-//            cout << "handle_WM_msg: Number of vertices = " << num_vertices <<"\n";
-        }
-        string str = msg.substr(3);
-        
-//        cout << "handle_WM_msg : str = " << str<<"\n";
-        std::stringstream ss(str.c_str());
-        std::string temp_str;
-        if(!getline(ss, temp_str, '\n')){
-            cout << "Inside handle_WM_msg: Getline: Some thing is wrong!!???\n";
-            return;
-        }
-//        cout << "handle_WM_msg: first str = " <<temp_str <<" size = " << temp_str.size() <<"\n";
-        
-        stringstream iss(temp_str.c_str());
-        string temp_vertex_id;
-        vector<string> vertex_v;
-        while(iss >> temp_vertex_id){
-            vertex_v.push_back(temp_vertex_id);
-        }
-        
-        if(num_vertices != (int)vertex_v.size() ){
-            cout << "Inside handle_WM_msg: Does not receive enough vertex. Something is wrong!!???\n";
-            return;
-        }
-        
-        string value_str = str.substr(temp_str.size() + 1);
-        //        std::stringstream ss1(str.c_str());
-//        if(!getline(ss, temp_str, '\n')){
-//            cout << "Inside handle_WM_msg: Getline: Some thing is wrong1!!???\n";
-//            return;
-//        }
-        
-//        cout << "handle_WM_msg: Value string: " << value_str<<"size = " << value_str.size() <<"\n";
-        
-        
-        //        stringstream iss1(temp_str.c_str());
-        vector<MessageValue> value_v;
-        int offset = 0;
-        while((int)value_v.size() < num_vertices){
-            if(offset >= (int)value_str.size() ){
-                cout << "Inside handle_WM_msg: Offset is greater than string size. Some thing is wrong!!???\n";
-                return;
-            }
-            string temp_value_str = value_str.substr(offset, sizeof(MessageValue));
-//            cout << "handle_WM_msg: temp_value_str=" << temp_value_str<<"\n";
-            offset += sizeof(MessageValue);
-            MessageValue temp_val;
-            String_to_MessageValue(temp_value_str, temp_val);
-//            cout << "handle_WM_msg: " << temp_val<<"\n";
-            value_v.push_back(temp_val);
-        }
-        
-        
-//        int map_idx ;
-//
-//        is_running_iteration_lock.lock();
-//        if(is_running_iteration == false){
-//            map_idx = super_step ;
-//        }
-//        else{
-//            map_idx = (super_step + 1) %2;
-//        }
-        
-        
-        for(int i = 0 ; i < (int)value_v.size(); i++){
-            incoming_msg_locks[map_idx][vertex_v[i]].lock();
-            incoming_msg_maps[map_idx][vertex_v[i]].push_back(value_v[i]);
-            incoming_msg_locks[map_idx][vertex_v[i]].unlock();
-            //            cout <<"handle_WM_msg: vertex " << vertex_v[i] << "Receive msg = " << value_v[i]<<"\n";
-        }
-    }
-}
-
 
 //
 //void worker_listening_thread(Graph_Base* graph_ptr){

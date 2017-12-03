@@ -46,6 +46,19 @@ public:
     virtual int64_t get_total_send() = 0;
     virtual int64_t get_total_receive() = 0;
     virtual int get_num_edges_local() = 0;
+    
+    virtual void write_graph_to_file() = 0;
+    
+    
+    virtual int64_t get_num_msg_receive_via_network() = 0;
+    virtual int64_t get_num_msg_send_via_network()= 0;
+    virtual int64_t get_num_msg_receive_directly()= 0;
+    virtual int64_t get_num_msg_send_directly()= 0;
+    virtual void init_test_info()= 0;
+    
+    virtual void Send_all_messages_to(int dest_worker_id) = 0;
+    virtual void add_value_to_incoming_map(int& map_idx, string& dest_vertex_id_str, string& temp_val) = 0;
+
 
 //    virtual string create_WM_msg(vector<string>& vertex_v, vector<MessageValue>& msg_value_v) = 0;
 };
@@ -194,7 +207,7 @@ template <class VertexValue, class EdgeValue, class MessageValue>
 void Vertex<VertexValue, EdgeValue, MessageValue>::send_to_all_neighbors(MessageValue& value){
 //    cout << "Vertex->send_to_all_neighbors: Start sending to all neighbors: value = "<< value <<"\n";
     if(out_going_edges.size() == 0){
-//        cout << "Vertex->send_to_all_neighbors: There is not neighbors\n";
+        cout << "Vertex->send_to_all_neighbors: There is not neighbors\n";
         return;
     }
     for(auto it = out_going_edges.begin(); it!= out_going_edges.end(); it++){
