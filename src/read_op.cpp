@@ -1,0 +1,300 @@
+#include "operations.h"
+
+bool read_at_client(string file_name, string output_file_name){
+    bool isMaster = false;;
+    master_lock.lock();
+    int cur_master_id = master_id;
+    if(my_vm_info.vm_num == master_id){
+        isMaster = true;
+    }
+    master_lock.unlock();
+
+
+    string rt_msg("");
+    string msg = create_RR_msg(file_name);
+
+    if(isMaster == false){
+        membership_list_lock.lock();
+        if(membership_list.find(cur_master_id) == membership_list.end()){
+            membership_list_lock.unlock();
+            cout << "Master is currently failed. Please try again later!\n";
+            return false;
+        }
+        VM_info master_info =  vm_info_map[cur_master_id];
+        membership_list_lock.unlock();
+
+        //Send read request msg to S
+        int master_sock_fd = tcp_open_connection(master_info.ip_addr_str, MASTER_PORT);
+        if(master_sock_fd == -1){
+            cout << "Cannot make connection with master. Please try again later!\n";
+            return false;
+        }
+
+        //Create Read Request msg
+        int numbytes = tcp_send_string(master_sock_fd, msg);
+        if(numbytes != 0){
+            cout << "Cannot make connection with master. Please try again later!\n";
+            return false;
+        }
+
+        struct timeval timeout_tv;
+        timeout_tv.tv_sec = READ_RQ_TIMEOUT;      //in sec
+        timeout_tv.tv_usec = 0;
+        setsockopt(master_sock_fd, SOL_SOCKET, SO_RCVTIMEO,(struct timeval *)&timeout_tv,sizeof(struct timeval));
+
+        char buf[MAX_BUF_LEN];
+        numbytes = recv(master_sock_fd, buf, MAX_BUF_LEN,0);
+        if(numbytes <= 0){      //Time out
+            close(master_sock_fd);
+            return false;
+        }
+        close(master_sock_fd);
+        string temp(buf, numbytes);
+        rt_msg = temp;
+    }
+    else{
+        rt_msg = handle_RR_msg(-1, msg, false);
+    }
+
+    if(rt_msg.size() != 11){
+        cout << "RT msg does not have size of 11. Something is WRONG!!\n";
+        return false;
+    }
+
+    if(rt_msg[2] != '1'){
+        cout << "File not exist!\n";
+        return false;
+    }
+
+    int rep1 = string_to_int(rt_msg.substr(3,2));
+    int rep2 = string_to_int(rt_msg.substr(5,2));
+    int rep3 = string_to_int(rt_msg.substr(7,2));
+    int version = string_to_int(rt_msg.substr(9,2));
+    cout << "Inside read_at_client: reps : " << rep1 << " "<<rep2 << " "<<rep3 <<"\n";
+    cout << "Inside read_at_client: version: " << version << "\n";
+    if(rep1 == my_vm_info.vm_num || rep2 == my_vm_info.vm_num  || rep3 == my_vm_info.vm_num){
+        // File is at local machine.
+        delivered_file_map_lock.lock();
+        if(delivered_file_map.find(file_name) != delivered_file_map.end()){
+            file_struct file = delivered_file_map[file_name];
+            cout << "File is at local\n";
+            if(version <= file.version){    //Copy file
+                std::ifstream ifs(file_name, std::ios::binary);
+                std::ofstream ofs(output_file_name, std::ios::binary);
+                ofs << ifs.rdbuf();
+                cout << "File is currently at local VM.\n";
+                delivered_file_map_lock.unlock();
+                return true;
+            }
+        }
+        delivered_file_map_lock.unlock();
+        if(rep1 == my_vm_info.vm_num)
+            rep1 = -1;
+        if(rep2 == my_vm_info.vm_num)
+            rep2 = -1;
+        if(rep3 == my_vm_info.vm_num)
+            rep3 = -1;
+    }
+
+    string rft_msg = create_RFT_msg(file_name, version);
+
+    vector<int> reps = {rep1, rep2, rep3};
+
+    struct timeval timeout_tv;
+    timeout_tv.tv_sec = READ_RQ_TIMEOUT;      //in sec
+    timeout_tv.tv_usec = 0;
+
+    for(int i = 0; i < (int)reps.size(); i++){
+        int cur_rep = reps[i];
+        if(cur_rep != -1){
+            membership_list_lock.lock();
+            if(membership_list.find(cur_rep) != membership_list.end()){
+                VM_info rep_info = vm_info_map[cur_rep];
+                membership_list_lock.unlock();
+                cout << "Here1\n";
+                int local_sock_fd = tcp_open_connection(rep_info.ip_addr_str, OP_PORT);
+                if(local_sock_fd != -1){
+                    cout << "Here2\n";
+                    int numbytes = tcp_send_string(local_sock_fd, rft_msg);
+                    if(numbytes != -1 ){
+                        cout << "Here3\n";
+                        setsockopt(local_sock_fd, SOL_SOCKET, SO_RCVTIMEO,(struct timeval *)&timeout_tv,sizeof(struct timeval));
+                        char buf[MAX_BUF_LEN];
+                        numbytes = recv(local_sock_fd, buf, 3, 0);
+                        if(numbytes <= 0){
+                            continue;
+                        }
+                        if(numbytes == 3 && buf[2] == '1'){     //This is RS msg
+                            cout << "Here4\n";
+                            if(receive_and_store_file(local_sock_fd, output_file_name) == true){
+                                cout << "Here5\n";
+                                cout << "File stored with name = " << output_file_name;
+                                close(local_sock_fd);
+                                return true;
+                            }
+                        }
+                    }
+                    close(local_sock_fd);
+                }
+            }
+            else{
+                membership_list_lock.unlock();
+            }
+        }
+    }
+    cout << "Cannot read from any replica.\n";
+    return false;
+}
+
+
+string create_RFT_msg(string file_name, int version){
+    string msg("RFT");
+    msg += int_to_string(version);
+    msg += file_name;
+    return msg;
+}
+
+string create_RR_msg(string file_name){
+    string msg("RR");
+    msg += file_name;
+    return msg;
+}
+
+//This dont need handler
+string create_RT_msg(bool canRead, int rep1, int rep2, int rep3, int version){
+    string msg("RT");
+    if(canRead == true)
+        msg += "1";
+    else
+        msg += "0";
+
+    msg += int_to_string(rep1);
+    msg += int_to_string(rep2);
+    msg += int_to_string(rep3);
+    msg += int_to_string(version);
+    return msg;
+}
+
+//This dont need handler
+string create_RS_msg(bool canRead){
+    string msg("RS");
+    if(canRead)
+        msg += "1";
+    else
+        msg += "0";
+    return msg;
+}
+
+
+
+string handle_RR_msg(int socket_fd, string msg, bool need_to_send){
+    file_table_lock.lock();
+    cout << "Inside handle_RR_msg\n";
+    string file_name = msg.substr(2);
+
+    if(filename_map.find(file_name) != filename_map.end()){
+        set<int> rows = filename_map[file_name];
+        if(rows.size() != 3){
+            cout << "File has more or less than 3 replicas. Something is wrong!!\n";
+            file_table_lock.unlock();
+            string rt_msg = create_RT_msg(false, 99, 99,99, 99);
+            return rt_msg;
+        }
+        vector<int> reps;
+        int version = -1;
+        for(auto it = rows.begin(); it != rows.end(); it++){
+            reps.push_back(file_table[*it].replica);
+            cout << "Inside handle_RR_msg: version = " << version <<"\n";
+            version = version > file_table[*it].version ? version : file_table[*it].version;
+        }
+        file_table_lock.unlock();
+        cout << "Inside handle_RR_msg: version = " << version <<"\n";
+        string rt_msg = create_RT_msg(true, reps[0], reps[1],reps[2], version);
+        if(need_to_send)
+            tcp_send_string(socket_fd, rt_msg);
+        else
+            return rt_msg;
+    }
+    else{
+        file_table_lock.unlock();
+        string rt_msg = create_RT_msg(false, 99, 99,99, 99);
+        if(need_to_send)
+            tcp_send_string(socket_fd, rt_msg);
+        else
+            return rt_msg;
+    }
+    return "";
+}
+
+void handle_RFT_msg(int socket_fd, string msg){
+    cout << "Inside handle_RFT_msg\n";
+
+    int version = string_to_int(msg.substr(3,2));
+    string file_name = msg.substr(5);
+    cout << "Inside handle_RFT_msg: " << file_name << " " << version << "\n";
+
+    delivered_file_map_lock.lock();
+    if(delivered_file_map.find(file_name) != delivered_file_map.end()){
+        if(delivered_file_map[file_name].version >= version){       //This does not allow different reads at different files. This is not Good.
+            FILE * fp = fopen(file_name.c_str(), "r");
+            if(fp == NULL){
+                cout << "Cannot open file\n";
+                delivered_file_map_lock.unlock();
+                string rs_msg = create_RS_msg(false);
+                tcp_send_string(socket_fd, rs_msg);
+                return;
+            }
+
+            string rs_msg = create_RS_msg(true);
+            tcp_send_string(socket_fd, rs_msg);
+            cout << "Inside handle_RFT_msg: rs_msg= " << rs_msg << "\n";
+
+            int file_size;
+            fseek(fp, 0L, SEEK_END);
+            file_size = ftell(fp);
+            fseek(fp, 0L, SEEK_SET);
+
+            string file_size_str = to_string(file_size);
+            file_size_str += "\n";
+            //Send size of file
+            if (send(socket_fd, file_size_str.c_str(), file_size_str.size(), 0) == -1){
+                perror("send");
+                fclose(fp);
+                close(socket_fd);
+                return ;
+            }
+
+            //Read from file and send data
+            int numbytes;
+            char buf[MAX_BUF_LEN];
+            int count = 0;
+            while((numbytes = fread(buf, 1, MAX_BUF_LEN, fp)) != 0){
+                if (send(socket_fd, buf, numbytes, 0) == -1){
+                    perror("send");
+                    fclose(fp);
+                    close(socket_fd);
+                    delivered_file_map_lock.unlock();
+                    return ;
+                }
+                count += numbytes;
+            }
+            cout << "Inside handle_RFT_msg: sent bytes= " << count << "\n";
+            fclose(fp);
+            close(socket_fd);
+            delivered_file_map_lock.unlock();
+        }
+        else{
+            cout << "Inside handle_RFT_msg: Here1\n";
+            delivered_file_map_lock.unlock();
+            string rs_msg = create_RS_msg(false);
+            tcp_send_string(socket_fd, rs_msg);
+        }
+    }
+    else{
+        cout << "Inside handle_RFT_msg: Here2\n";
+
+        delivered_file_map_lock.unlock();
+        string rs_msg = create_RS_msg(false);
+        tcp_send_string(socket_fd, rs_msg);
+    }
+}
